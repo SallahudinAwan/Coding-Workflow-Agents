@@ -1,17 +1,18 @@
 Metadata-Version: 2.4
 Name: simple-code-agent
 Version: 0.1.0
-Summary: A small Gemini, Groq, or local Qwen code agent
+Summary: A small LangChain code agent for Gemini, Groq, and local Qwen
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: langchain>=1.0.0
 Requires-Dist: langchain-google-genai>=4.0.0
 Requires-Dist: langchain-groq>=1.0.0
 Requires-Dist: langchain-ollama>=1.0.0
+Requires-Dist: python-dotenv>=1.0.0
 
-# Simple Code Agent
+# Simple LangChain Code Agent
 
-A small CLI agent that asks for a local repository, understands its structure, asks what you want changed, and lets Gemini, Groq, or a local Qwen model edit and test the code.
+A small LangChain agent that asks for a local repository, understands its structure, asks what you want changed, and lets Gemini, Groq, or a local Qwen model edit and test the code.
 
 ## How it works
 
@@ -27,6 +28,8 @@ The application gives the selected model only a few repository-scoped tools:
 The agent first receives the repository tree plus important files such as `README.md`, `AGENTS.md`, `package.json`, and `pyproject.toml`. It then uses the tools to inspect only the code relevant to your request. Every file path is checked so the agent cannot read or write outside the selected repository.
 
 Existing files cannot be overwritten through the file-creation tool. The agent must read them and make small, exact replacements, preserving unrelated code. Whole-file and oversized replacements are rejected.
+
+LangChain's `create_agent` runs the model/tool loop and a LangGraph in-memory checkpointer keeps each UI or CLI session continuous. The official `ChatGoogleGenerativeAI`, `ChatGroq`, and `ChatOllama` integrations provide interchangeable model backends. Repository safeguards and UI events remain application code, so changing a model does not change what the agent is allowed to do.
 
 ## Setup
 
@@ -60,7 +63,7 @@ The default Groq model is `llama-3.3-70b-versatile`. Change it with `--groq-mode
 
 If Groq returns Cloudflare error `1010`, disable any VPN or proxy and try another network. This is an edge-network client-signature block, not a model error.
 
-Groq rate-limit responses (`429`) are retried automatically using the delay returned by the API. The current conversation and tool progress are preserved while waiting.
+The LangChain model adapters retry transient provider failures up to three times. If a provider still fails in `auto` mode, the same request is tried with the next configured provider.
 
 The interactive session stays open after each result and retains its conversation and tool history. This allows follow-ups such as `now add tests for that API`. Type `exit` or `quit` when finished.
 
@@ -107,6 +110,13 @@ $env:GEMINI_MODEL="gemini-2.5-pro"
 code-agent
 ```
 
+Optional LangSmith tracing can be enabled without a code change:
+
+```powershell
+$env:LANGSMITH_TRACING="true"
+$env:LANGSMITH_API_KEY="your-key"
+```
+
 Force the local model, even when Gemini is available:
 
 ```powershell
@@ -124,7 +134,7 @@ $env:OLLAMA_MODEL="qwen3:1.7b"
 
 ## Add another LLM later
 
-Repository tools are independent of Gemini, Groq, and Ollama. Add another provider class with the same `solve(request, repository_context, tools)` shape, then select it in `code_agent/cli.py`. No repository-tool code needs to change.
+Repository tools are independent of Gemini, Groq, and Ollama. Add another LangChain chat-model adapter in `LangChainProvider._build_chat_model`, expose it in the provider factory and leave the repository tools unchanged.
 
 ## Tests
 

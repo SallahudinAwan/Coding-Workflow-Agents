@@ -13,6 +13,7 @@ dependencies = [
     "langchain-google-genai>=4.0.0",
     "langchain-groq>=1.0.0",
     "langchain-ollama>=1.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]

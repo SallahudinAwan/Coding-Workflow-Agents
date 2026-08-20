@@ -3,10 +3,7 @@ pyproject.toml
 code_agent/__init__.py
 code_agent/__main__.py
 code_agent/cli.py
-code_agent/gemini_provider.py
-code_agent/groq_provider.py
 code_agent/langchain_provider.py
-code_agent/ollama_provider.py
 code_agent/provider_factory.py
 code_agent/repo_tools.py
 code_agent/ui.py
@@ -19,6 +16,6 @@ simple_code_agent.egg-info/dependency_links.txt
 simple_code_agent.egg-info/entry_points.txt
 simple_code_agent.egg-info/requires.txt
 simple_code_agent.egg-info/top_level.txt
-tests/test_groq_provider.py
+tests/test_langchain_provider.py
 tests/test_repo_tools.py
 tests/test_ui.py
