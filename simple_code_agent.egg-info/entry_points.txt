@@ -1,0 +1,3 @@
+[console_scripts]
+code-agent = code_agent.cli:main
+code-agent-ui = code_agent.ui:main

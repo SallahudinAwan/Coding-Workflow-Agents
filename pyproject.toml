@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simple-code-agent"
+version = "0.1.0"
+description = "A small LangChain code agent for Gemini, Groq, and local Qwen"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain>=1.0.0",
+    "langchain-google-genai>=4.0.0",
+    "langchain-groq>=1.0.0",
+    "langchain-ollama>=1.0.0",
+]
+
+[project.scripts]
+code-agent = "code_agent.cli:main"
+code-agent-ui = "code_agent.ui:main"
+
+[tool.setuptools.packages.find]
+include = ["code_agent*"]
+
+[tool.setuptools.package-data]
+code_agent = ["web/*"]

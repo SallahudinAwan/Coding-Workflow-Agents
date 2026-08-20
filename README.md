@@ -1,0 +1,131 @@
+# Simple LangChain Code Agent
+
+A small LangChain agent that asks for a local repository, understands its structure, asks what you want changed, and lets Gemini, Groq, or a local Qwen model edit and test the code.
+
+## How it works
+
+The application gives the selected model only a few repository-scoped tools:
+
+- list files
+- read a file
+- search code
+- create a new file without overwriting existing files
+- replace one exact block in a file
+- run allowlisted test, lint, and build commands
+
+The agent first receives the repository tree plus important files such as `README.md`, `AGENTS.md`, `package.json`, and `pyproject.toml`. It then uses the tools to inspect only the code relevant to your request. Every file path is checked so the agent cannot read or write outside the selected repository.
+
+Existing files cannot be overwritten through the file-creation tool. The agent must read them and make small, exact replacements, preserving unrelated code. Whole-file and oversized replacements are rejected.
+
+LangChain's `create_agent` runs the model/tool loop and a LangGraph in-memory checkpointer keeps each UI or CLI session continuous. The official `ChatGoogleGenerativeAI`, `ChatGroq`, and `ChatOllama` integrations provide interchangeable model backends. Repository safeguards and UI events remain application code, so changing a model does not change what the agent is allowed to do.
+
+## Setup
+
+Python 3.10 or newer is required.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+$env:GEMINI_API_KEY="your-key"
+```
+
+Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+For the local fallback, install [Ollama](https://ollama.com/download), then download Qwen:
+
+```powershell
+ollama pull qwen3:1.7b
+```
+
+With the default `auto` provider, the agent tries Gemini, then Groq, and finally local Qwen through Ollama. Providers without a configured API key are skipped.
+
+To enable Groq, create an API key in the [Groq Console](https://console.groq.com/keys):
+
+```powershell
+$env:GROQ_API_KEY="your-key"
+code-agent --provider groq
+```
+
+The default Groq model is `llama-3.3-70b-versatile`. Change it with `--groq-model` or `GROQ_MODEL`.
+
+If Groq returns Cloudflare error `1010`, disable any VPN or proxy and try another network. This is an edge-network client-signature block, not a model error.
+
+The LangChain model adapters retry transient provider failures up to three times. If a provider still fails in `auto` mode, the same request is tried with the next configured provider.
+
+The interactive session stays open after each result and retains its conversation and tool history. This allows follow-ups such as `now add tests for that API`. Type `exit` or `quit` when finished.
+
+Qwen's thinking is displayed by default. To show only its final answer, run:
+
+```powershell
+code-agent --provider ollama --hide-thinking
+```
+
+## Run
+
+Interactive mode asks for the repository first, then the change request:
+
+```powershell
+code-agent
+```
+
+### Web UI
+
+Launch the local Codex-style interface:
+
+```powershell
+code-agent-ui
+```
+
+It opens `http://127.0.0.1:8765` and streams model thinking, repository tool calls and results, per-tool durations, total task time, errors, fallbacks, and final answers. The conversation remains active for follow-up requests. The server binds to localhost by default.
+
+To start it without opening a browser automatically:
+
+```powershell
+code-agent-ui --no-browser
+```
+
+You can also provide both values directly:
+
+```powershell
+code-agent --repo D:\path\to\project --query "Add a GET /health API"
+```
+
+Set a different Gemini model without changing the code:
+
+```powershell
+$env:GEMINI_MODEL="gemini-2.5-pro"
+code-agent
+```
+
+Optional LangSmith tracing can be enabled without a code change:
+
+```powershell
+$env:LANGSMITH_TRACING="true"
+$env:LANGSMITH_API_KEY="your-key"
+```
+
+Force the local model, even when Gemini is available:
+
+```powershell
+code-agent --provider ollama --local-model qwen3:1.7b
+```
+
+The same settings can be stored in environment variables:
+
+```powershell
+$env:CODE_AGENT_PROVIDER="auto"
+$env:GROQ_MODEL="llama-3.3-70b-versatile"
+$env:OLLAMA_HOST="http://localhost:11434"
+$env:OLLAMA_MODEL="qwen3:1.7b"
+```
+
+## Add another LLM later
+
+Repository tools are independent of Gemini, Groq, and Ollama. Add another LangChain chat-model adapter in `LangChainProvider._build_chat_model`, expose it in the provider factory and leave the repository tools unchanged.
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -v
+```

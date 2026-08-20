@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Agent</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">⌁</span><span>Code Agent</span></div>
+      <button id="new-session" class="new-session" type="button"><span>＋</span> New session</button>
+      <section class="session-info">
+        <div class="eyebrow">Repository</div>
+        <div id="repo-name" class="repo-name">Not connected</div>
+        <div id="repo-path" class="repo-path">Choose a local project to begin.</div>
+      </section>
+      <section class="session-info">
+        <div class="eyebrow">Model</div>
+        <div id="model-name" class="model-name">—</div>
+      </section>
+      <div class="sidebar-bottom"><span class="status-dot"></span> Local UI · repository scoped</div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <div id="task-title" class="task-title">New coding task</div>
+          <div id="activity-label" class="activity-label">Ready</div>
+        </div>
+        <div id="timer" class="timer">0.0s</div>
+      </header>
+
+      <div id="timeline" class="timeline">
+        <section id="welcome" class="welcome">
+          <div class="welcome-icon">⌁</div>
+          <h1>What should we build?</h1>
+          <p>Connect a repository, then describe a change. Thinking, tool calls, results, and timing appear here as the agent works.</p>
+        </section>
+      </div>
+
+      <footer class="composer-wrap">
+        <form id="composer" class="composer">
+          <textarea id="message" rows="1" placeholder="Ask the agent to change your code…" disabled></textarea>
+          <div class="composer-row">
+            <span id="composer-hint">Connect a repository first</span>
+            <button id="send" type="submit" disabled aria-label="Send">↑</button>
+          </div>
+        </form>
+      </footer>
+    </main>
+  </div>
+
+  <div id="setup-layer" class="setup-layer">
+    <form id="setup-form" class="setup-card">
+      <div class="setup-symbol">⌁</div>
+      <h2>Start a code session</h2>
+      <p>The agent can only read and edit files inside the repository you choose.</p>
+      <label>Local repository path
+        <input id="repository" name="repository" placeholder="D:\projects\todo-app" required autofocus>
+      </label>
+      <div class="setup-grid">
+        <label>Provider
+          <select id="provider" name="provider">
+            <option value="auto">Auto fallback</option>
+            <option value="groq">Groq</option>
+            <option value="ollama">Local Ollama</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </label>
+        <label id="model-field">Model override
+          <input id="model" name="model" placeholder="Use provider default">
+        </label>
+      </div>
+      <label class="check-row"><input id="show-thinking" type="checkbox" checked> Show model thinking</label>
+      <div id="setup-error" class="setup-error"></div>
+      <button id="connect" class="connect" type="submit">Connect repository</button>
+    </form>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
+
