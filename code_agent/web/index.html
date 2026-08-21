@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Code Agent</title>
+  <title>Developer Agent</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="shell">
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">⌁</span><span>Code Agent</span></div>
-      <button id="new-session" class="new-session" type="button"><span>＋</span> New session</button>
+      <div class="brand"><span class="brand-mark">&#8961;</span><span>Developer Agent</span></div>
+      <button id="new-session" class="new-session" type="button"><span>+</span> New session</button>
       <section class="session-info">
         <div class="eyebrow">Repository</div>
         <div id="repo-name" class="repo-name">Not connected</div>
@@ -18,15 +18,15 @@
       </section>
       <section class="session-info">
         <div class="eyebrow">Model</div>
-        <div id="model-name" class="model-name">—</div>
+        <div id="model-name" class="model-name">&mdash;</div>
       </section>
-      <div class="sidebar-bottom"><span class="status-dot"></span> Local UI · repository scoped</div>
+      <div class="sidebar-bottom"><span class="status-dot"></span> Code + approved GitHub workflow</div>
     </aside>
 
     <main class="workspace">
       <header class="topbar">
         <div>
-          <div id="task-title" class="task-title">New coding task</div>
+          <div id="task-title" class="task-title">New developer task</div>
           <div id="activity-label" class="activity-label">Ready</div>
         </div>
         <div id="timer" class="timer">0.0s</div>
@@ -34,18 +34,18 @@
 
       <div id="timeline" class="timeline">
         <section id="welcome" class="welcome">
-          <div class="welcome-icon">⌁</div>
-          <h1>What should we build?</h1>
-          <p>Connect a repository, then describe a change. Thinking, tool calls, results, and timing appear here as the agent works.</p>
+          <div class="welcome-icon">&#8961;</div>
+          <h1>What should we build or publish?</h1>
+          <p>The Developer Agent routes code changes to the Code Agent and branch, commit, push, and draft PR requests to the approval-gated GitHub Agent.</p>
         </section>
       </div>
 
       <footer class="composer-wrap">
         <form id="composer" class="composer">
-          <textarea id="message" rows="1" placeholder="Ask the agent to change your code…" disabled></textarea>
+          <textarea id="message" rows="1" placeholder="Ask the Developer Agent to change or publish your code..." disabled></textarea>
           <div class="composer-row">
             <span id="composer-hint">Connect a repository first</span>
-            <button id="send" type="submit" disabled aria-label="Send">↑</button>
+            <button id="send" type="submit" disabled aria-label="Send">&uarr;</button>
           </div>
         </form>
       </footer>
@@ -54,9 +54,9 @@
 
   <div id="setup-layer" class="setup-layer">
     <form id="setup-form" class="setup-card">
-      <div class="setup-symbol">⌁</div>
-      <h2>Start a code session</h2>
-      <p>The agent can only read and edit files inside the repository you choose.</p>
+      <div class="setup-symbol">&#8961;</div>
+      <h2>Start a developer session</h2>
+      <p>Code edits stay repository-scoped. Git operations and draft PR creation always pause for explicit approval.</p>
       <label>Local repository path
         <input id="repository" name="repository" placeholder="D:\projects\todo-app" required autofocus>
       </label>
@@ -81,4 +81,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-

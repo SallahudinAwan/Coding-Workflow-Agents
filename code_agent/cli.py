@@ -4,12 +4,13 @@ import argparse
 import os
 from pathlib import Path
 
+from code_agent.config import load_project_environment
 from code_agent.provider_factory import build_providers
 from code_agent.repo_tools import RepositoryTools
-from dotenv import load_dotenv
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(ENV_FILE)
+
+load_project_environment()
+
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

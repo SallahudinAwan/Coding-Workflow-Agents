@@ -6,6 +6,7 @@ const state = {
   startedAt: null,
   timerHandle: null,
   tools: new Map(),
+  pendingApproval: null,
 };
 
 const setupLayer = $("#setup-layer");
@@ -69,6 +70,196 @@ function addUserMessage(text) {
   scrollDown();
 }
 
+function approvalField(labelText, value, multiline = false) {
+  const label = document.createElement("label");
+  label.className = "approval-field";
+  const caption = document.createElement("span");
+  caption.textContent = labelText;
+  const field = multiline ? document.createElement("textarea") : document.createElement("input");
+  field.value = value || "";
+  if (multiline) field.rows = 8;
+  label.append(caption, field);
+  return {label, field};
+}
+
+async function consumeEventStream(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const {value, done} = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) if (line.trim()) renderEvent(JSON.parse(line));
+    if (done) break;
+  }
+  if (buffer.trim()) renderEvent(JSON.parse(buffer));
+}
+
+function renderApproval(event) {
+  const section = eventShell("approval", "Human approval required", event.elapsed_ms);
+  const card = document.createElement("div");
+  card.className = "approval-card";
+  const summary = document.createElement("div");
+  summary.className = "approval-summary";
+  summary.textContent = `${event.repository} · ${event.base_branch} → new branch · draft PR`;
+  const branch = approvalField("New branch", event.branch);
+  const commit = approvalField("Commit message", event.commit_message);
+  const prTitle = approvalField("Draft PR title", event.pr_title);
+  const prBody = approvalField("Draft PR body", event.pr_body, true);
+
+  const changesTitle = document.createElement("div");
+  changesTitle.className = "approval-subtitle";
+  changesTitle.textContent = "Files to stage";
+  const changes = document.createElement("div");
+  changes.className = "approval-changes";
+  for (const group of event.change_groups) {
+    const row = document.createElement("label");
+    row.className = "approval-check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.dataset.groupId = group.id;
+    const text = document.createElement("span");
+    text.textContent = `[${group.status}] ${group.label}`;
+    row.append(input, text);
+    changes.append(row);
+  }
+
+  const diff = document.createElement("details");
+  diff.className = "approval-diff";
+  const diffSummary = document.createElement("summary");
+  diffSummary.textContent = "Review unified diff";
+  const diffText = document.createElement("pre");
+  diffText.textContent = event.diff;
+  diff.append(diffSummary, diffText);
+
+  const confirmations = document.createElement("div");
+  confirmations.className = "approval-confirmations";
+  const confirmationLabels = [
+    ["approve_branch", "Create this new local branch"],
+    ["approve_stage", "Stage only the selected files"],
+    ["approve_commit", "Create this local commit"],
+    ["approve_push", "Push the new branch to origin"],
+    ["approve_pr", "Create this draft PR through GitHub MCP"],
+  ];
+  for (const [name, labelText] of confirmationLabels) {
+    const row = document.createElement("label");
+    row.className = "approval-check confirmation";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.confirmation = name;
+    const text = document.createElement("span");
+    text.textContent = labelText;
+    row.append(input, text);
+    confirmations.append(row);
+  }
+
+  const error = document.createElement("div");
+  error.className = "approval-error";
+  const actions = document.createElement("div");
+  actions.className = "approval-actions";
+  const reject = document.createElement("button");
+  reject.type = "button";
+  reject.className = "approval-reject";
+  reject.textContent = "Cancel";
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.className = "approval-approve";
+  approve.textContent = "Approve and publish";
+  actions.append(reject, approve);
+
+  card.append(
+    summary,
+    branch.label,
+    commit.label,
+    changesTitle,
+    changes,
+    prTitle.label,
+    prBody.label,
+    diff,
+    confirmations,
+    error,
+    actions,
+  );
+  section.append(card);
+  timeline.append(section);
+  state.pendingApproval = {
+    event,
+    section,
+    branch: branch.field,
+    commit: commit.field,
+    prTitle: prTitle.field,
+    prBody: prBody.field,
+    changes,
+    confirmations,
+    error,
+  };
+  approve.addEventListener("click", () => submitApproval(true));
+  reject.addEventListener("click", () => submitApproval(false));
+  messageInput.disabled = true;
+  sendButton.disabled = true;
+  $("#activity-label").textContent = "Waiting for human approval";
+  scrollDown();
+}
+
+async function submitApproval(approved) {
+  const pending = state.pendingApproval;
+  if (!pending || state.busy) return;
+  const selected = [...pending.changes.querySelectorAll("input:checked")]
+    .map((input) => input.dataset.groupId);
+  const confirmations = [...pending.confirmations.querySelectorAll("input")];
+  if (approved && (!selected.length || confirmations.some((input) => !input.checked))) {
+    pending.error.textContent = "Select at least one file group and explicitly confirm all five actions.";
+    return;
+  }
+  const decision = {
+    selected_group_ids: selected,
+    branch: pending.branch.value.trim(),
+    commit_message: pending.commit.value.trim(),
+    pr_title: pending.prTitle.value.trim(),
+    pr_body: pending.prBody.value.trim(),
+  };
+  for (const input of confirmations) {
+    decision[input.dataset.confirmation] = approved && input.checked;
+  }
+  state.busy = true;
+  pending.error.textContent = "";
+  for (const element of pending.section.querySelectorAll("input, textarea, button")) {
+    element.disabled = true;
+  }
+  $("#activity-label").textContent = approved ? "Publishing approved changes" : "Cancelling publish";
+  startTimer();
+  try {
+    const response = await fetch("/api/approval", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        approval_id: pending.event.approval_id,
+        decision,
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Approval failed");
+    }
+    await consumeEventStream(response);
+    pending.section.classList.add("resolved");
+  } catch (caught) {
+    renderEvent({type: "error", text: caught.message, elapsed_ms: performance.now() - state.startedAt});
+    stopTimer(performance.now() - state.startedAt);
+  } finally {
+    state.pendingApproval = null;
+    state.busy = false;
+    messageInput.disabled = false;
+    sendButton.disabled = false;
+    $("#activity-label").textContent = "Ready for follow-up";
+    messageInput.focus();
+  }
+}
+
 function renderEvent(event) {
   if (event.type === "done") {
     stopTimer(event.elapsed_ms);
@@ -87,6 +278,10 @@ function renderEvent(event) {
     return;
   }
 
+  if (event.type === "approval_required") {
+    renderApproval(event);
+    return;
+  }
   if (event.type === "thinking") {
     const section = eventShell("thinking", "Thinking", event.elapsed_ms);
     const details = document.createElement("details");
@@ -120,6 +315,10 @@ function renderEvent(event) {
     section.append(details);
     timeline.append(section);
     state.tools.set(event.id, details);
+  } else if (event.type === "route") {
+    const section = eventShell("route", "Developer Agent", event.elapsed_ms);
+    textBody(section, event.text);
+    timeline.append(section);
   } else if (event.type === "answer") {
     const section = eventShell("answer", event.model || "Agent", event.elapsed_ms);
     textBody(section, event.text);
@@ -164,6 +363,7 @@ async function createSession(event) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not start the session");
     state.sessionId = data.session_id;
+    state.pendingApproval = null;
     $("#repo-path").textContent = data.repository;
     $("#repo-name").textContent = data.repository.split(/[\\/]/).filter(Boolean).pop();
     $("#model-name").textContent = data.models.join(" → ");
@@ -204,26 +404,18 @@ async function sendMessage(event) {
       const data = await response.json();
       throw new Error(data.error || "Request failed");
     }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const {value, done} = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-      for (const line of lines) if (line.trim()) renderEvent(JSON.parse(line));
-      if (done) break;
-    }
-    if (buffer.trim()) renderEvent(JSON.parse(buffer));
+    await consumeEventStream(response);
   } catch (caught) {
     renderEvent({type: "error", text: caught.message, elapsed_ms: performance.now() - state.startedAt});
     stopTimer(performance.now() - state.startedAt);
   } finally {
     state.busy = false;
-    sendButton.disabled = false;
-    $("#activity-label").textContent = "Ready for follow-up";
-    messageInput.focus();
+    if (!state.pendingApproval) {
+      messageInput.disabled = false;
+      sendButton.disabled = false;
+      $("#activity-label").textContent = "Ready for follow-up";
+      messageInput.focus();
+    }
   }
 }
 
@@ -242,7 +434,7 @@ messageInput.addEventListener("keydown", (event) => {
   }
 });
 $("#new-session").addEventListener("click", () => {
-  if (state.busy) return;
+  if (state.busy || state.pendingApproval) return;
   setupLayer.classList.remove("hidden");
 });
 $("#provider").addEventListener("change", (event) => {

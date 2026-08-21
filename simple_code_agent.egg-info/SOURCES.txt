@@ -3,6 +3,11 @@ pyproject.toml
 code_agent/__init__.py
 code_agent/__main__.py
 code_agent/cli.py
+code_agent/config.py
+code_agent/developer_agent.py
+code_agent/github_cli.py
+code_agent/github_mcp.py
+code_agent/github_workflow.py
 code_agent/langchain_provider.py
 code_agent/provider_factory.py
 code_agent/repo_tools.py
@@ -16,6 +21,9 @@ simple_code_agent.egg-info/dependency_links.txt
 simple_code_agent.egg-info/entry_points.txt
 simple_code_agent.egg-info/requires.txt
 simple_code_agent.egg-info/top_level.txt
+tests/test_developer_agent.py
+tests/test_github_mcp.py
+tests/test_github_workflow.py
 tests/test_langchain_provider.py
 tests/test_repo_tools.py
 tests/test_ui.py

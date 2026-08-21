@@ -1,6 +1,11 @@
-# Simple LangChain Code Agent
+# LangChain Developer Agent
 
-A small LangChain agent that asks for a local repository, understands its structure, asks what you want changed, and lets Gemini, Groq, or a local Qwen model edit and test the code.
+A local Developer Agent that routes implementation requests to a repository-scoped Code Agent and publishing requests to a tightly restricted GitHub Agent.
+
+The GitHub Agent can only create a new local branch, stage an approved file set,
+commit locally, push that branch, and create one draft PR through GitHub's
+official remote MCP server. LangGraph stops before those actions and requires a
+separate explicit human confirmation for each one.
 
 ## How it works
 
@@ -31,6 +36,9 @@ $env:GEMINI_API_KEY="your-key"
 ```
 
 Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+The CLI and web UI also load these settings from the `.env` file in the project
+root.
 
 For the local fallback, install [Ollama](https://ollama.com/download), then download Qwen:
 
@@ -69,7 +77,7 @@ Interactive mode asks for the repository first, then the change request:
 code-agent
 ```
 
-### Web UI
+### Developer Agent web UI
 
 Launch the local Codex-style interface:
 
@@ -77,7 +85,18 @@ Launch the local Codex-style interface:
 code-agent-ui
 ```
 
-It opens `http://127.0.0.1:8765` and streams model thinking, repository tool calls and results, per-tool durations, total task time, errors, fallbacks, and final answers. The conversation remains active for follow-up requests. The server binds to localhost by default.
+It opens `http://127.0.0.1:8765`. The Developer Agent classifies each message:
+
+- Code changes go to the Code Agent.
+- Requests to publish, push, commit, create a branch, or open a PR go to the
+  GitHub Agent.
+- Mixed requests such as `fix the bug and push the changes` run the Code Agent
+  first and then stop at the GitHub approval screen.
+
+The UI streams model thinking, repository tools, routing decisions, timing, and
+results. For GitHub work it displays selectable change groups, the unified diff,
+editable branch/commit/PR text, and five independent confirmations. Normal chat
+is paused until that approval is accepted or cancelled.
 
 To start it without opening a browser automatically:
 
@@ -90,6 +109,46 @@ You can also provide both values directly:
 ```powershell
 code-agent --repo D:\path\to\project --query "Add a GET /health API"
 ```
+
+### GitHub Agent with human approval
+
+Configure normal Git credentials for `git push`. Then create a GitHub personal
+access token with access only to repositories where the agent may create PRs and
+add it to the project `.env`:
+
+```dotenv
+GITHUB_PERSONAL_ACCESS_TOKEN=github_pat_here
+```
+
+After the Code Agent has produced local changes, the same restricted publishing
+workflow can also be started from the terminal:
+
+```powershell
+github-expert `
+  --repo D:\path\to\project `
+  --request "Fix issue #42 and add regression tests" `
+  --provider gemini
+```
+
+The GitHub Agent follows this enforced workflow:
+
+1. It reads the exact unstaged/untracked change groups and unified diff. Existing
+   staged changes are refused so staging ownership is unambiguous.
+2. The selected LLM receives that diff without tools and drafts only the PR title
+   and Markdown body.
+3. LangGraph interrupts before all writes. The human selects files and separately
+   approves branch creation, staging, local commit, push, and draft PR creation.
+4. Local Git creates a new branch, runs `git add -- <approved paths>`, commits, and
+   pushes to the exact `origin`. Stale approvals and unexpected hook-added files
+   are refused before pushing.
+5. A deterministic GitHub MCP client calls only `list_pull_requests` and
+   `create_pull_request` (with the server limited to the context toolset plus
+   those two tools). It reuses an existing open PR for the exact head/base, or
+   creates one draft PR using the approved title, body, base, and head. A
+   rejection performs no Git operation.
+
+Use `--branch` and `--message` to override the proposed feature branch and local
+commit message. The local `origin` must resolve to `github.com/owner/repository`.
 
 Set a different Gemini model without changing the code:
 

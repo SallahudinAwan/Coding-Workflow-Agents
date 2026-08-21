@@ -99,6 +99,28 @@ details[open] summary::before { content: "⌄"; }
 .connect:disabled { opacity: .45; }
 .setup-error { min-height: 18px; color: var(--danger); font-size: 11px; }
 
+.event.route::before { content: "R"; border-color: #4b6388; color: var(--blue); }
+.event.approval::before { content: "?"; border-color: #8ca851; color: var(--accent); }
+.approval-card { display: grid; gap: 14px; margin-top: 8px; border: 1px solid #4b5537; border-radius: 12px; padding: 16px; background: #1a1d16; }
+.approval-summary { color: var(--accent); font-size: 12px; font-weight: 650; }
+.approval-subtitle { margin-top: 2px; color: var(--soft); font-size: 12px; font-weight: 700; }
+.approval-field { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
+.approval-field input, .approval-field textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 8px; outline: 0; padding: 9px 10px; color: var(--text); background: #11130f; font-family: inherit; font-weight: 400; line-height: 1.5; }
+.approval-field input:focus, .approval-field textarea:focus { border-color: #697052; }
+.approval-changes, .approval-confirmations { display: grid; gap: 8px; }
+.approval-check { display: flex; align-items: flex-start; gap: 9px; color: var(--soft); font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; line-height: 1.45; }
+.approval-check input { margin-top: 2px; accent-color: var(--accent-dark); }
+.approval-check.confirmation { font-family: inherit; }
+.approval-diff { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #11130f; }
+.approval-diff pre { overflow: auto; max-height: 360px; margin: 0; border-top: 1px solid var(--line); padding: 12px; color: #aeb3a8; font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; line-height: 1.5; white-space: pre; }
+.approval-error { min-height: 16px; color: var(--danger); font-size: 11px; }
+.approval-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.approval-actions button { border-radius: 8px; padding: 9px 12px; font-size: 11px; font-weight: 700; }
+.approval-reject { border: 1px solid var(--line); color: var(--soft); background: transparent; }
+.approval-approve { border: 0; color: #171914; background: var(--accent); }
+.approval-card button:disabled, .approval-card input:disabled, .approval-card textarea:disabled { cursor: default; opacity: .65; }
+.event.approval.resolved .approval-card { border-color: var(--line); opacity: .72; }
+
 @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
 @media (max-width: 760px) {
   .shell { grid-template-columns: 1fr; }
@@ -108,4 +130,3 @@ details[open] summary::before { content: "⌄"; }
   .timeline { padding-right: 20px; padding-left: 20px; }
   .setup-grid { grid-template-columns: 1fr; gap: 0; }
 }
-

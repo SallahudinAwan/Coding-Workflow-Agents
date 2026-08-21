@@ -5,20 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "simple-code-agent"
 version = "0.1.0"
-description = "A small LangChain code agent for Gemini, Groq, and local Qwen"
+description = "A LangChain Developer Agent with approval-gated GitHub publishing"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain>=1.0.0",
+    "langchain-mcp-adapters>=0.3.2",
     "langchain-google-genai>=4.0.0",
     "langchain-groq>=1.0.0",
     "langchain-ollama>=1.0.0",
+    "langgraph>=1.0.0",
     "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
 code-agent = "code_agent.cli:main"
 code-agent-ui = "code_agent.ui:main"
+github-expert = "code_agent.github_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["code_agent*"]

@@ -11,15 +11,32 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from langgraph.types import Command
+
+from code_agent.config import load_project_environment
+from code_agent.developer_agent import DeveloperIntent, classify_developer_request
+from code_agent.github_mcp import GitHubMCPClient
+from code_agent.github_workflow import (
+    GitHubPublishWorkflow,
+    GitPublisher,
+    PullRequestDraftGenerator,
+    default_branch_name,
+    default_commit_message,
+)
 from code_agent.provider_factory import build_providers
 from code_agent.repo_tools import RepositoryTools
 
 
 ASSET_DIRECTORY = Path(__file__).parent / "web"
-from dotenv import load_dotenv
+load_project_environment()
 
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(ENV_FILE)
+
+@dataclass
+class PendingPublish:
+    approval_id: str
+    workflow: GitHubPublishWorkflow
+    config: dict
+
 
 @dataclass
 class AgentSession:
@@ -27,10 +44,13 @@ class AgentSession:
     providers: list
     repository_context: str
     lock: threading.Lock = field(default_factory=threading.Lock)
+    last_code_request: str = ""
+    last_provider: object | None = None
+    pending_publish: PendingPublish | None = None
 
 
 class AgentUIHandler(BaseHTTPRequestHandler):
-    server_version = "SimpleCodeAgent/0.1"
+    server_version = "DeveloperAgent/0.1"
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -79,6 +99,8 @@ class AgentUIHandler(BaseHTTPRequestHandler):
                 self._create_session()
             elif self.path == "/api/chat":
                 self._chat()
+            elif self.path == "/api/approval":
+                self._approval()
             else:
                 self.send_error(404)
         except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
@@ -114,21 +136,11 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def _chat(self) -> None:
-        data = self._json_body()
+    def _session(self, data: dict) -> AgentSession | None:
         session_id = str(data.get("session_id", ""))
-        message = str(data.get("message", "")).strip()
-        session = self.server.sessions.get(session_id)  # type: ignore[attr-defined]
-        if session is None:
-            self._send_json(404, {"error": "Session not found; reconnect the repository"})
-            return
-        if not message:
-            self._send_json(400, {"error": "A message is required"})
-            return
-        if not session.lock.acquire(blocking=False):
-            self._send_json(409, {"error": "The agent is already working"})
-            return
+        return self.server.sessions.get(session_id)  # type: ignore[attr-defined]
 
+    def _start_stream(self):
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -148,45 +160,184 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 connected = False
 
+        return started, emit
+
+    @staticmethod
+    def _run_code_agent(session: AgentSession, message: str, emit) -> bool:
+        for index, provider in enumerate(session.providers):
+            if index > 0:
+                session.repository_context = session.tools.initial_context()
+            emit(
+                {
+                    "type": "status",
+                    "text": f"Code Agent is working with {provider.model}",
+                    "model": provider.model,
+                }
+            )
+            try:
+                result = provider.solve(
+                    request=message,
+                    repository_context=session.repository_context,
+                    tools=session.tools.functions(),
+                )
+                emit(
+                    {
+                        "type": "answer",
+                        "text": result,
+                        "model": f"Code Agent · {provider.model}",
+                    }
+                )
+                session.last_code_request = message
+                session.last_provider = provider
+                return True
+            except Exception as exc:
+                has_fallback = index < len(session.providers) - 1
+                emit(
+                    {
+                        "type": "status" if has_fallback else "error",
+                        "text": str(exc),
+                    }
+                )
+        return False
+
+    @staticmethod
+    def _prepare_publish(session: AgentSession, request: str, emit) -> None:
+        if session.pending_publish:
+            raise ValueError("A GitHub approval is already pending")
+        provider = session.last_provider or session.providers[0]
+        publisher = GitPublisher(
+            session.tools.root,
+            on_event=lambda text: emit({"type": "status", "text": text}),
+        )
+        workflow = GitHubPublishWorkflow(
+            publisher=publisher,
+            draft_generator=PullRequestDraftGenerator(provider.chat_model),
+            github_mcp=GitHubMCPClient(),
+            branch=default_branch_name(),
+            message=default_commit_message(request),
+            on_event=lambda text: emit({"type": "status", "text": text}),
+        )
+        config = {"configurable": {"thread_id": uuid.uuid4().hex}}
+        result = workflow.graph.invoke({"request": request}, config=config)
+        interruptions = result.get("__interrupt__", [])
+        if not interruptions:
+            raise RuntimeError("GitHub workflow did not reach its approval boundary")
+        approval_id = uuid.uuid4().hex
+        session.pending_publish = PendingPublish(
+            approval_id=approval_id,
+            workflow=workflow,
+            config=config,
+        )
+        emit(
+            {
+                "type": "approval_required",
+                "approval_id": approval_id,
+                **interruptions[0].value,
+            }
+        )
+
+    def _chat(self) -> None:
+        data = self._json_body()
+        message = str(data.get("message", "")).strip()
+        session = self._session(data)
+        if session is None:
+            self._send_json(404, {"error": "Session not found; reconnect the repository"})
+            return
+        if not message:
+            self._send_json(400, {"error": "A message is required"})
+            return
+        if not session.lock.acquire(blocking=False):
+            self._send_json(409, {"error": "The agent is already working"})
+            return
+
+        started, emit = self._start_stream()
+
         session.tools.on_event = emit
         for provider in session.providers:
             if hasattr(provider, "on_event"):
                 provider.on_event = emit
 
         try:
-            answered = False
-            for index, provider in enumerate(session.providers):
-                if index > 0:
-                    session.repository_context = session.tools.initial_context()
-                emit({"type": "status", "text": f"Working with {provider.model}", "model": provider.model})
-                try:
-                    result = provider.solve(
-                        request=message,
-                        repository_context=session.repository_context,
-                        tools=session.tools.functions(),
-                    )
-                    emit({"type": "answer", "text": result, "model": provider.model})
-                    answered = True
-                    break
-                except Exception as exc:
-                    has_fallback = index < len(session.providers) - 1
-                    emit(
-                        {
-                            "type": "status" if has_fallback else "error",
-                            "text": str(exc),
-                        }
-                    )
-            if not answered:
-                emit({"type": "error", "text": "No provider completed the request"})
+            intent = classify_developer_request(message)
+            route = (
+                "Code Agent → GitHub Agent"
+                if intent == DeveloperIntent.CODE_AND_GITHUB
+                else "GitHub Agent"
+                if intent in {DeveloperIntent.GITHUB, DeveloperIntent.GITHUB_UNSUPPORTED}
+                else "Code Agent"
+            )
+            emit({"type": "route", "text": f"Developer Agent routed this to {route}"})
+            if intent == DeveloperIntent.GITHUB_UNSUPPORTED:
+                emit(
+                    {
+                        "type": "answer",
+                        "model": "GitHub Agent",
+                        "text": (
+                            "This GitHub Agent is restricted to creating a new branch, "
+                            "staging approved files, committing locally, pushing that "
+                            "branch, and creating one approved draft PR. It cannot perform "
+                            "the requested GitHub operation."
+                        ),
+                    }
+                )
+                return
+            code_completed = True
+            if intent != DeveloperIntent.GITHUB:
+                code_completed = self._run_code_agent(session, message, emit)
+            if code_completed and intent != DeveloperIntent.CODE:
+                publish_request = session.last_code_request or message
+                self._prepare_publish(session, publish_request, emit)
+            elif not code_completed:
+                emit({"type": "error", "text": "No Code Agent provider completed the request"})
             session.repository_context = session.tools.initial_context()
+        except Exception as exc:
+            emit({"type": "error", "text": str(exc)})
         finally:
             emit({"type": "done", "elapsed_ms": round((time.perf_counter() - started) * 1000)})
             session.tools.on_event = None
             session.lock.release()
 
+    def _approval(self) -> None:
+        data = self._json_body()
+        session = self._session(data)
+        if session is None:
+            self._send_json(404, {"error": "Session not found; reconnect the repository"})
+            return
+        pending = session.pending_publish
+        if pending is None or str(data.get("approval_id", "")) != pending.approval_id:
+            self._send_json(409, {"error": "Approval is missing, stale, or already handled"})
+            return
+        if not session.lock.acquire(blocking=False):
+            self._send_json(409, {"error": "The Developer Agent is already working"})
+            return
+
+        started, emit = self._start_stream()
+        pending.workflow.on_event = lambda text: emit({"type": "status", "text": text})
+        pending.workflow.publisher.on_event = lambda text: emit(
+            {"type": "status", "text": text}
+        )
+        try:
+            decision = dict(data.get("decision") or {})
+            final = pending.workflow.graph.invoke(
+                Command(resume=decision), config=pending.config
+            )
+            emit({"type": "answer", "text": final["result"], "model": "GitHub Agent"})
+            session.repository_context = session.tools.initial_context()
+        except Exception as exc:
+            emit({"type": "error", "text": str(exc)})
+        finally:
+            session.pending_publish = None
+            emit(
+                {
+                    "type": "done",
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000),
+                }
+            )
+            session.lock.release()
+
 
 def _arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Simple Code Agent web UI")
+    parser = argparse.ArgumentParser(description="Run the Developer Agent web UI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
@@ -198,7 +349,7 @@ def main() -> None:
     server = ThreadingHTTPServer((args.host, args.port), AgentUIHandler)
     server.sessions = {}  # type: ignore[attr-defined]
     url = f"http://{args.host}:{args.port}"
-    print(f"Simple Code Agent UI running at {url}")
+    print(f"Developer Agent UI running at {url}")
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
@@ -212,4 +363,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
